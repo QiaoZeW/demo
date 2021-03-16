@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+    <video></video>
+</head>
+<body>
+<div id="mask" style="display: none;">
+    <button id="start">开始试验</button>
+</div>
+<div id="content" style="display: block;">
+    <div id="tip">请对准摄像头</div>
+    <div id="main" style="height: 320px;">
+        <div class="circle"></div>
+        <video id="video" playsinline="" autoplay="" muted="" preload="auto"></video>
+    </div>
+    <ul class="clip">
+        <li>
+            <button id="retry">开始录3秒</button><br>
+            <button id="download">下载</button>
+        </li>
+        <li>
+            <video id="blink-video" playsinline="" loop="" width="100%"></video>
+        </li>
+    </ul>
+    <h3>Logs</h3>
+    <div id="log">navigator.getUserMedia error:TypeError: Failed to execute 'getUserMedia' on 'MediaDevices': Illegal invocation</div>
+</div>
+
+
+<script>
+    var mediaRecorder;
+    const logDiv = document.querySelector('div#log');
+
+    function log(...str) {
+        logDiv.innerHTML = logDiv.innerHTML + '<br/>' + str.map(item => {
+            if (typeof item === 'object') {
+                return JSON.stringify(item);
+            }
+            return item;
+        }).join(' ');
+    }
+    var mediaStream;
+    var recorderFile;
+    var stopRecordCallback;
+    var tip = document.getElementById("tip");
+    var video = document.getElementById('video');11
+    var blinkVideo = document.getElementById('blink-video');
+    var main = document.getElementById('main');
+    var content = document.getElementById('content');
+    var retry = document.getElementById('retry');
+    var download = document.getElementById('download');
+    var blinkTimer;
+    var chunks = [];
+
+    document.querySelector('button#start').onclick = () => {
+        video.play();
+        video.pause();
+        document.querySelector('div#content').style.display = 'block';
+        document.querySelector('div#mask').style.display = 'none';
+        tip.innerText = '请对准摄像头';
+        main.style.height = document.documentElement.offsetWidth + 'px';
+        init();
+    };
+    download.onclick = function () {
+        saver();
+    };
+    // new
+    function handleDataAvailable(event) {
+        log('handleDataAvailable', event);
+        if (event.data && event.data.size > 0) {
+            chunks.push(event.data);
+        }
+    }
+
+    function play(ele, cks) {
+        let type = 'video/webm';
+        if (/iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase())) {
+            type = 'video/quicktime';
+        }
+        const superBuffer = new Blob(cks, { type: type });
+        recorderFile = cks;
+        ele.src = null;
+        ele.srcObject = null;
+        ele.src = window.URL.createObjectURL(superBuffer);
+        ele.controls = true;
+        ele.play();
+    }
+
+    function initRecord() {
+        var types = [
+            "video/webm",
+            "audio/webm",
+            "video/webm;codecs=vp9",
+            "video/webm;codecs=vp8",
+            "video/webm;codecs=daala",
+            "video/webm;codecs=h264",
+            "audio/webm;codecs=opus",
+            "video/3gpp",
+            "video/mp4",
+            "video/mpeg",
+            "video/quicktime",
+            "video/x-flv",
+            "video/x-m4v",
+            "video/MP2T",
+            "video/x-ms-wmv",
+            "video/x-msvideo",
+        ];
+
+        for (var i in types) {
+            log( "Is " + types[i] + " supported? " + (MediaRecorder.isTypeSupported(types[i]) ? "Maybe!" : "Nope :("));
+        }
+
+        let options = {mimeType: 'video/webm;codecs=vp9,opus'};
+        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+            log(`${options.mimeType} is not supported`);
+            options = {mimeType: 'video/webm;codecs=vp8,opus'};
+            if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                log(`${options.mimeType} is not supported`);
+                options = {mimeType: 'video/webm'};
+                if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                    log(`${options.mimeType} is not supported`);
+                    options = {mimeType: 'video/quicktime'};
+                }
+            }
+        }
+        try {
+            log('MediaRecorder:', MediaRecorder, options);
+            mediaRecorder = new MediaRecorder(window.stream, options);
+        } catch (e) {
+            console.error('Exception while creating MediaRecorder:', e);
+            log(`Exception while creating MediaRecorder: ${JSON.stringify(e)}`);
+            return;
+        }
+
+        log('Created MediaRecorder', mediaRecorder, 'with options', options);
+
+        mediaRecorder.ondataavailable = handleDataAvailable;
+        // prepare();
+    }
+    function handleSuccess(stream) {
+        log('getUserMedia() got stream:', stream);
+        log('stream: ', stream.active, stream.ended, stream.id);
+        window.stream = stream;
+
+        const gumVideo = document.querySelector('video#video');
+        gumVideo.srcObject = stream;
+        window.setTimeout(function () {
+            gumVideo.play();
+        },5000);
+        initRecord();
+    }
+
+    async function init() {
+        const constraints = {
+            audio: false,
+            video: {
+                width: 600, height: 480
+            }
+        };
+        try {
+            const fn = navigator.mediaDevices && navigator.mediaDevices.getUserMedia || navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia || window.getUserMedia;
+            const stream = await fn(constraints);
+            handleSuccess(stream);
+        } catch (e) {
+            log('navigator.getUserMedia error:', e);
+            logDiv.innerHTML = `navigator.getUserMedia error:${e.toString()}`;
+        }
+    }
+    retry.onclick = function () {
+        prepare();
+    }
+    function prepare() {
+        if (blinkTimer) {
+            window.clearInterval(blinkTimer);
+            blinkTimer = null;
+        }
+        blink();
+    }
+    function blink() {
+        var text = '读秒：';
+        var count = 3;
+        mediaRecorder.start();
+        retry.setAttribute('disabled', true);
+        blinkTimer = window.setInterval(function () {
+                tip.innerHTML = text + ' <b>' + count + '</b>';
+                retry.innerText = '录制计时' + count + '秒..';
+                count--;
+                if (count < 0) {
+                    window.clearInterval(blinkTimer);
+                    blinkTimer = null;
+                    mediaRecorder.stop();
+                    mediaRecorder.onstop = function (e) {
+                        play(blinkVideo, chunks);
+                        finish();
+                        chunks = [];
+                        retry.removeAttribute('disabled');
+                        retry.innerText = '开始录3秒';
+                    };
+                    tip.innerText = '处理中，请稍候...';
+                }
+            },
+            1000);
+    }
+    function finish() {
+        log('finished');
+        tip.innerText = '已完成';
+    }
+
+    function saver() {
+        if (!recorderFile || recorderFile.length === 0) {
+            alert('请录制一段视频，才能下载。');
+            return;
+        }
+        var file = new File(recorderFile, 'msr-' + (new Date).toISOString().replace(/:|\./g, '-') + '.mp4', {
+            type: 'video/mp4'
+        });
+        saveAs(file);
+    }
+
+    function send() {
+        var file = new File(recorderFile, 'msr-' + (new Date).toISOString().replace(/:|\./g, '-') + '.mp4', {
+            type: 'video/mp4'
+        });
+        var data = new FormData();
+        data.append("username", "test");
+        data.append("userfile", file);
+
+        var req = new XMLHttpRequest();
+        req.open("POST", "com.spinsoft.bip.frame.utils.image.saveMp4.biz.ext");
+        req.send(data);
+    }
+</script>
+<style>
+    #mask button {
+        padding: 10px 20px;
+        font-size: 24px;
+        background: aliceblue;
+        border-radius: 20px;
+    }
+    #video {
+        z-index: 9;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+    }
+    #tip {
+        width: 100%;
+        height: 30px;
+        line-height: 30px;
+        font-size: 18px;
+        margin-top: 10px;
+        display: block;
+        background: white;
+        text-align: center;
+    }
+    #main {
+        position: relative;
+        width: 100%;
+        overflow: hidden;
+    }
+    ul.clip {
+        list-style: none;
+        margin-top: 5px;
+        text-align: center;
+        float: left;
+        width: 100%;
+    }
+    ul.clip li {
+        display: block;
+        width: 50%;
+        float: left;
+        padding: 2px;
+    }
+    .circle {
+        z-index: 99;
+        position: absolute;
+        top: 0;
+        left: 0;
+        background: radial-gradient(50% 50%, rgba(0, 0, 0, 0) 90%, rgba(0, 0, 0, .8) 0);
+        width: 100%;
+        height: 100%;
+    }
+    body {
+        background-color: #EFEDEF;
+    }
+</style>
+</body>
+</html>
